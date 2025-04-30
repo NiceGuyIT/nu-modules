@@ -1,20 +1,38 @@
 #!/usr/bin/env nu
 
-use std log
+# Use this shebang to check the script for errors.
+# #!/usr/bin/env -S nu --ide-check 1
+
 export-env {
-	$env.NU_LOG_LEVEL = DEBUG
+	# Module name, used to load the configuration.
+	$env.MODULE_NAME = "tactical-rmm"
+	# Set the log level and file.
+	$env.NU_LOG_LEVEL = "DEBUG"
+	# Output log is not currently used. Instead, use this to call the program.
+	#   script.nu err>| save --force output.log
+	$env.NU_LOG_FILE = false
+}
+
+# Load the configuration file
+def "load config" []: string -> any {
+	let name = $in
+	if ($env.HOME | path join ".config/sops" $"($name).nuon" | path exists) {
+		($env.HOME | path join ".config/sops" $"($name).nuon") | open | get config?.file? | open
+	} else if ($env.HOME | path join ".config/sops" $"($name).yml" | path exists) {
+		($env.HOME | path join ".config/sops" $"($name).yml") | open | get config?.file? | open
+	} else if ($env | get --ignore-errors ([$name, "_CONFIG"] | str join | str upcase) | path exists) {
+		$env | get --ignore-errors ([$name, "_CONFIG"] | str join | str upcase) | open | get config?.file? | open
+	}
 }
 
 # Connect to TRMM. --env allows exporting environment variables.
 export def --env "trmm connect" [
 	--json-connection: string,		# JSON file that contains the host and API key
 ]: nothing -> nothing {
-	# .trmm.json file format:
-	# {
-	# 	"host": "api.example.com",
-	# 	"api_key": "....API_KEY_HERE...."
-	# }
-	let t = (open .trmm.json)
+	# tactical-rmm.yml file format:
+	# host: api.example.com
+	# api_key: API_KEY_HERE
+	let config = ($env.MODULE_NAME | load config)
 
 	# Save the connection details in an environment variable.
 	$env.TRMM = {
@@ -22,19 +40,21 @@ export def --env "trmm connect" [
 		# "X-API-KEY XXX" is for API keys.
 		# "Authorization Token XXX" is for agent authorization.
 		headers: [
-			"Content-Type" "application/json"
-			"X-API-KEY" $t.api_key
+			# TODO: Make this dynamic
+			# "Content-Type" "application/json"
+			"Content-Type" "application/x-www-form-urlencoded"
+			"X-API-KEY" $config.api_key
 		]
 		# Used in url join
 		# https://www.nushell.sh/commands/docs/url_join.html
 		url: {
 			scheme: https,
-			host: $t.host,
+			host: $config.host,
 		}
 		options: {
 			# https://www.nushell.sh/commands/docs/http_get.html
 			# timeout period in seconds
-			max_time: 5
+			max_time: (5sec | into duration)
 		}
 	}
 }
@@ -68,7 +88,7 @@ export def "trmm put" [
 # Helper function for POST requests to TRMM. $in is the body.
 export def "trmm post" [
 	path: string,				# URL path to get
-	query: string = nil,		# URL query string
+	query: string = "",		# URL query string
 ]: any -> any {
 	let input = $in
 	let trmm = $env.TRMM
@@ -116,6 +136,27 @@ export def "trmm agent customfields" []: any -> any {
 			$left | merge $right | select agent model name value
 		})
 		$agent
+	}
+}
+
+# Update Nushell for one agent.
+export def "trmm agent nushell update" []: any -> any {
+	let input = $in
+	if ($input | is-not-empty) {
+		log info $"Input: ($input)"
+		$input | each {|it|
+			# TODO: $it assumes the raw agent_id is $input. Should it allow $it.agent_id?
+			'{
+				"shell": "cmd",
+				"cmd": "nu version",
+				"timeout": 30,
+				"custom_shell": "nushell",
+				"run_as_user": false
+			}'
+			| trmm post $"/agents/($it)/cmd/"
+		}
+	} else {
+		trmm get "/agents/"
 	}
 }
 
@@ -278,16 +319,32 @@ export def "trmm-agent install" [
 }
 
 
+# Download Mesh Agent.
+export def "meshexe" [
+	--agent-bin: path = "meshexe"			# Path to TRMM agent binary
+]: nothing -> nothing {
+	let config = ($env.MODULE_NAME | load config)
+	let headers = [ "Content-Type" "application/x-www-form-urlencoded" "X-API-KEY" $config.api_key ]
+	let body = {
+		goarch: 'amd64'
+		plat: 'windows'
+	}
+	let path = "/api/v3/meshexe/"
+	let url = ({...$env.TRMM.url, path: $path} | url join)
+
+	# $body | to json | trmm post $path | reject body
+	$body | http post --full --allow-errors --redirect-mode manual --content-type "multipart/form-data" --headers $headers $url
+}
+
 export def main [
-	--json-connection: string = ".trmm.json",		# JSON file that contains the host and API key
 	action: string,									# Action to take: [agent-customfields|agents|core-customfields]
 	...args: any									# Action specific args
 ]: [nothing -> any] {
-	let json_connection = $json_connection
+	use std log
 	let action = $action
 	let args = $args
-	trmm connect --json-connection $json_connection
-	$env.TRMM
+	trmm connect
+	# $env.TRMM
 
 	if $action == 'agent-customfields' {
 		trmm agent customfields
@@ -310,10 +367,14 @@ export def main [
 	} else if $action == 'agents-list' {
 		trmm agents --details false
 			| reject alert_template monitoring_type description needs_reboot pending_actions_count status overdue_text_alert overdue_email_alert overdue_dashboard_alert last_seen boot_time checks maintenance_mode italic block_policy_inheritance plat goarch operating_system public_ip cpu_model graphics local_ips make_model physical_disks serial_number
-			| transpose
 
 	} else if $action == 'agents-offline' {
 		trmm agent
+
+	} else if $action == 'agent-nushell-update' {
+		log debug $"agent-nushell-update"
+		# "PhAHwRUfwQRxOyOVnJFfgQQrbIoKoNwyDdCbUqZa" | trmm agent | trmm agent nushell update
+		"PhAHwRUfwQRxOyOVnJFfgQQrbIoKoNwyDdCbUqZa" | trmm agent nushell update
 
 	} else if $action == 'core-customfields' {
 		trmm core customfields
@@ -342,6 +403,13 @@ export def main [
 		#trmm-agent install $args
 		log debug $"Args: "
 		print ...$args
+
+	} else if $action == 'meshexe' {
+		# FIXME: rest params don't work unless they are added to the function definition.
+		#trmm-agent install $args
+		log debug $"Args: "
+		print ...$args
+		meshexe
 
 	} else {
 		# Self help :)
