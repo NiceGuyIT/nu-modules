@@ -282,6 +282,7 @@ KillMode=process
 WantedBy=multi-user.target
 "
 
+	use std log
 	log info $"Installing ($service_name) service"
 	if (whoami) != "root" {
 		$tactical_service | ^sudo tee $service_filename
