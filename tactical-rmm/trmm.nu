@@ -16,7 +16,12 @@ export-env {
 # Load the configuration file
 def "load config" []: string -> any {
 	let name = $in
-	if ($env.HOME | path join ".config/sops" $"($name).nuon" | path exists) {
+	if ("TRMM_HOST" in $env) and ("TRMM_API_KEY" in $env) {
+		{
+			host: $env.TRMM_API_HOST
+			api_key: $env.TRMM_API_KEY
+		}
+	} else if ($env.HOME | path join ".config/sops" $"($name).nuon" | path exists) {
 		($env.HOME | path join ".config/sops" $"($name).nuon") | open | get config?.file? | open
 	} else if ($env.HOME | path join ".config/sops" $"($name).yml" | path exists) {
 		($env.HOME | path join ".config/sops" $"($name).yml") | open | get config?.file? | open
@@ -41,8 +46,9 @@ export def --env "trmm connect" [
 		# "Authorization Token XXX" is for agent authorization.
 		headers: [
 			# TODO: Make this dynamic
-			# "Content-Type" "application/json"
-			"Content-Type" "application/x-www-form-urlencoded"
+			"Content-Type" "application/json"
+			# This does not work when running /runscript/ against the api.
+			# "Content-Type" "application/x-www-form-urlencoded"
 			"X-API-KEY" $config.api_key
 		]
 		# Used in url join
@@ -92,9 +98,14 @@ export def "trmm post" [
 ]: any -> any {
 	let input = $in
 	let trmm = $env.TRMM
+	# use std log
+	# log debug $"[trmm post] input: ($input)"
 	http post --max-time $trmm.options.max_time --headers $trmm.headers (
 		{...$trmm.url, path: $path, query: $query} | url join
 	) $input
+
+	# let url = ({...$trmm.url, path: $path, query: $query} | url join)
+	# print $"http post --max-time ($trmm.options.max_time) --headers ($trmm.headers) ($url) ($input)"
 }
 
 # Get all agents, minus their details.
@@ -158,6 +169,44 @@ export def "trmm agent nushell update" []: any -> any {
 	} else {
 		trmm get "/agents/"
 	}
+}
+
+# Run a script on an agent.
+export def "trmm script run" [
+	agent_id: string			# Agent to run the script on
+]: any -> any {
+	let input = $in
+	if ($input | is-empty) {
+		use std log
+		log warning "Input (script payload)is empty"
+		return
+	}
+
+	# Input payload
+	# {
+	# 	"output": "wait",
+	# 	"emails": [],
+	# 	"emailMode": "default",
+	# 	"custom_field": null,
+	# 	"save_all_output": false,
+	# 	"script": 123,
+	# 	"args": [],
+	# 	"env_vars": [
+	# 		"VAR1=value1",
+	# 		"VAR2=value2"
+	# 	],
+	# 	"timeout": 90,
+	# 	"run_as_user": false,
+	# 	"run_on_server": false
+	# }
+
+	# use std log
+	# log debug $"[trmm script run] Input: ($input)"
+	# log debug $"[trmm script run] agent_id: ($agent_id)"
+
+	$input
+	| to json --raw
+	| trmm post $"/agents/($agent_id)/runscript/"
 }
 
 # Get all custom fields.
@@ -373,8 +422,8 @@ export def main [
 
 	} else if $action == 'agent-nushell-update' {
 		log debug $"agent-nushell-update"
-		# "PhAHwRUfwQRxOyOVnJFfgQQrbIoKoNwyDdCbUqZa" | trmm agent | trmm agent nushell update
-		"PhAHwRUfwQRxOyOVnJFfgQQrbIoKoNwyDdCbUqZa" | trmm agent nushell update
+		"abcdefghijklmnopqrstuvwxyzabcdefghijklmn" | trmm agent nushell update
+
 
 	} else if $action == 'core-customfields' {
 		trmm core customfields
@@ -384,6 +433,25 @@ export def main [
 
 	} else if $action == 'winupdate' {
 		trmm agents | trmm winupdate
+
+	} else if $action == 'run-script' {
+		{
+			"output": "wait",
+			"emails": [],
+			"emailMode": "default",
+			"custom_field": null,
+			"save_all_output": false,
+			"script": $env.TRMM_SCRIPT_ID,
+			"args": [],
+			"env_vars": [
+				$"ENV_NAME_1=($env.ENV_NAME_1)",
+				$"ENV_NAME_2=($env.ENV_NAME_2)"
+			],
+			"timeout": 90,
+			"run_as_user": false,
+			"run_on_server": false
+		}
+		| trmm script run $env.TRMM_AGENT_ID
 
 	} else if $action == 'winupdate-pending' {
 		trmm agents | trmm winupdate pending | reject description title support_url
