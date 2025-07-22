@@ -16,7 +16,7 @@ export-env {
 # Load the configuration file
 def "load config" []: string -> any {
 	let name = $in
-	if ("TRMM_HOST" in $env) and ("TRMM_API_KEY" in $env) {
+	if ("TRMM_API_HOST" in $env) and ("TRMM_API_KEY" in $env) {
 		{
 			host: $env.TRMM_API_HOST
 			api_key: $env.TRMM_API_KEY
