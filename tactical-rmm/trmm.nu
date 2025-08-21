@@ -369,7 +369,7 @@ export def "trmm-agent install" [
 }
 
 # Registers trmm agent using the TacticalRMM API
-export def "trmm-agent register" [ --trmm-host: string = 'api.a8n.tools' ]: nothing -> nothing {
+export def "trmm-agent register" [ --trmm-host: string ]: nothing -> nothing {
     use std log
     $env.NU_LOG_LEVEL = "DEBUG"
     let trmm_api_host = $trmm_host
@@ -445,7 +445,7 @@ export def "trmm-agent register" [ --trmm-host: string = 'api.a8n.tools' ]: noth
         "mesh_node_id":    '',
         "description":     $description,
         "goarch":          'amd64',
-        "plat":            'linux',
+        "plat":            $nu.os-info.name,
     }
 
     #1. Create a TacticalRMM agent with the information created.
