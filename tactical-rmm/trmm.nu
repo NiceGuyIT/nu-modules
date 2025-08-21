@@ -37,6 +37,8 @@ export def --env "trmm connect" [
 	# tactical-rmm.yml file format:
 	# host: api.example.com
 	# api_key: API_KEY_HERE
+	use std log
+	log debug $env.MODULE_NAME
 	let config = ($env.MODULE_NAME | load config)
 
 	# Save the connection details in an environment variable.
@@ -369,12 +371,20 @@ export def "trmm-agent install" [
 }
 
 # Registers trmm agent using the TacticalRMM API
-export def "trmm-agent register" [ --trmm-host: string ]: nothing -> nothing {
+export def "trmm-agent register" [ ]: nothing -> nothing {
     use std log
-    $env.NU_LOG_LEVEL = "DEBUG"
-    let trmm_api_host = $trmm_host
+
+	log info "Registering TacticalRMM agent"
+
+	# Connect to TRMM
+	trmm connect
+
     let hostname = (sys host | get hostname)
     let description = ( input "Enter node description: ")
+
+	let trmm_api_key = $env.TRMM.headers.3
+
+	let trmm_api_host = $env.TRMM.url.host
 
     mut answered = false 
     mut monitoring_type = ""
@@ -388,10 +398,11 @@ export def "trmm-agent register" [ --trmm-host: string ]: nothing -> nothing {
         }
     }
 
-    let trmm_api_key = ( input "Enter TRMM API Key: ")
+	let trmm_site: int = (input "Enter site number: ")
+
     let trmm_register_key = ( input "Enter TRMM Register Key: ")
 
-    if ($trmm_api_key == "" or $trmm_register_key == "") {
+    if ($trmm_api_host == "" or $trmm_register_key == "") {
         print "API Key or Register Key cannot be empty. Exiting."
         exit 1
     }
@@ -422,6 +433,7 @@ export def "trmm-agent register" [ --trmm-host: string ]: nothing -> nothing {
         max_time: (5sec | into duration)
     }
 
+	# Generate random agent ID
     let agent_id = (
         0..39
         | each {
@@ -440,7 +452,7 @@ export def "trmm-agent register" [ --trmm-host: string ]: nothing -> nothing {
         # https://github.com/amidaware/rmmagent/blob/develop/agent/utils.go#L134
         "agent_id":        $agent_id,
         "hostname":        $hostname,
-        "site":            1,
+        "site":            $trmm_site,
         "monitoring_type": 'server',
         "mesh_node_id":    '',
         "description":     $description,
@@ -451,7 +463,7 @@ export def "trmm-agent register" [ --trmm-host: string ]: nothing -> nothing {
     #1. Create a TacticalRMM agent with the information created.
     # http get --max-time $options.max_time --headers $headers $url
     let post_body = ($agent_payload | to json --raw)
-    let post_result = http post --allow-errors --full --max-time $options.max_time --headers $headers $post_url $post_body
+    let post_result = http post --allow-errors --full --max-time $options.max_time --headers $env.TRMM.headers $post_url $post_body
 
 
     #2. Take the current configuration in /etc/tacticalrmm
