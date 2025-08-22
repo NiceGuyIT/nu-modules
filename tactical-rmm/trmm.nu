@@ -419,13 +419,17 @@ export def "trmm-agent register" [ ]: nothing -> nothing {
         "Authorization" $"Token ($trmm_register_key)"
     ]
 
-    let post_url = (
-        {
-            scheme: https,
-            host: $trmm_api_host,
-            path: '/api/v3/newagent/'
-        } | url join
-    )
+    # let post_url = (
+    #     {
+    #         scheme: https,
+    #         host: $trmm_api_host,
+    #         path: '/api/v3/newagent/'
+    #     } | url join
+    # )
+
+	let api_path = "/api/v3"
+
+	let api_query = "newagent"
 
     let options = {
         # https://www.nushell.sh/commands/docs/http_get.html
@@ -463,7 +467,7 @@ export def "trmm-agent register" [ ]: nothing -> nothing {
     #1. Create a TacticalRMM agent with the information created.
     # http get --max-time $options.max_time --headers $headers $url
     let post_body = ($agent_payload | to json --raw)
-    let post_result = http post --allow-errors --full --max-time $options.max_time --headers $env.TRMM.headers $post_url $post_body
+    let post_result = ( $post_body | trmm post $api_path $api_query )
 
 
     #2. Take the current configuration in /etc/tacticalrmm
