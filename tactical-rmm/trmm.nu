@@ -299,7 +299,7 @@ WantedBy=multi-user.target
 	}
 }
 
-# TODO: The args can be improved
+
 # Install Tactical RMM using an existing tacticalagent binary.
 export def "trmm-agent install" [
 	--api-domain: string,					# Tactical API URL
@@ -370,6 +370,22 @@ export def "trmm-agent install" [
 	$tacticalagent_path | trmm-agent service create --service-name $tacticalagent_name
 }
 
+def generate-agent-id []: any -> string {
+	# Generate a random 40-character string of upper and lowercase letters.
+	#(
+	let agent_id = ( 0..39
+		| each {
+			let chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+			# grab a random index for the legnth between 0 and 51
+			let idx = (random int 0..<52)
+			# get the character at the random index
+			$chars | str substring $idx..<($idx + 1)
+		}
+		| str join )
+
+	return $agent_id
+}
+
 # Registers trmm agent using the TacticalRMM API
 export def "trmm-agent register" [ 
 	--api-domain: string,					# Tactical API URL
@@ -416,18 +432,7 @@ export def "trmm-agent register" [
 	const new_agent_path = "/api/v3/newagent/"
 
 	# Generate random agent ID
-	# TODO: Move this into a separate function.
-    let agent_id = (
-        0..39
-        | each {
-            let chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
-            # grab a random index for the legnth between 0 and 51
-            let idx = (random int 0..<52)
-            # get the character at the random index
-            $chars | str substring $idx..<($idx + 1)
-        }
-        | str join
-    )
+    let agent_id = generate-agent-id
 
 
     let agent_payload = {
@@ -465,9 +470,9 @@ export def "trmm-agent register" [
     let agentpk = ($response.body.pk)
     let token = ($response.body.token)
 
-	# TODO: Maybe add a timestamp so you don't overwrite other backups?
-	# TODO: Maybe copy the backup based on the apiurl?
-	cp $agent_config_file "/etc/tacticalagent.bak"
+	#let timestamp = (date now | format date "%Y%m%d%H%M%S")
+	let backup_name = $"/etc/tacticalagent.($env.TRMM.url.host)"
+	cp $agent_config_file $backup_name
 
 	open $agent_config_file
 	| from json
