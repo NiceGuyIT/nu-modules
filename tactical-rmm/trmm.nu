@@ -398,9 +398,9 @@ export def "trmm-agent register" [ ]: nothing -> nothing {
         }
     }
 
-	let trmm_site: int = (input "Enter site number: ")
+	let trmm_site: int = ( input "Enter site number: " )
 
-    let trmm_register_key = ( input "Enter TRMM Register Key: ")
+    let trmm_register_key = ( input "Enter TRMM Register Key: " )
 
     if ($trmm_api_host == "" or $trmm_register_key == "") {
         print "API Key or Register Key cannot be empty. Exiting."
