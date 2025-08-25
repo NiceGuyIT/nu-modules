@@ -371,73 +371,52 @@ export def "trmm-agent install" [
 }
 
 # Registers trmm agent using the TacticalRMM API
-export def "trmm-agent register" [ ]: nothing -> nothing {
-    use std log
+export def "trmm-agent register" [ 
+	--api-domain: string,					# Tactical API URL
+	--client-id: int = 1,					# Client ID for the agent
+	--site-id: int = 1,						# Site ID for the agent
+	--agent-type: string = "server",		# server or workstation
+]: nothing -> any {
+	# For the moment, this function is linux only
+	use std log
+
+	# Flag variables
+	let api_domain = $api_domain
+	let client_id = $client_id
+	let site_id = $site_id
+	let agent_type = $agent_type
+
+	const agent_config_file = '/etc/tacticalagent'
+
+	if not (is-admin) {
+		log error "This command must be run as an admin user."
+		return
+	}
+	if (not ($agent_config_file | path exists)) {
+		log error $"Tactical Agent configuration not found in ($agent_config_file)"
+		return
+	}
 
 	log info "Registering TacticalRMM agent"
 
 	# Connect to TRMM
 	trmm connect
 
-    let hostname = (sys host | get hostname)
-    let description = ( input "Enter node description: ")
-
-	let trmm_api_key = $env.TRMM.headers.3
-
-	let trmm_api_host = $env.TRMM.url.host
-
-    mut answered = false 
-    mut monitoring_type = ""
-    while ( not ($answered) and ($monitoring_type | is-empty) ) {
-        mut answer = (input "Enter monitoring type (s)erver/(w)orkstation: ")
-        if ( $answer == "s" or $answer == "w" ) {
-            $answered = true
-            $monitoring_type = if ($answer == "s") { 'server' } else { 'workstation' }
-        } else {
-            print $"Invalid monitoring type. Please enter 's' for server or 'w' for workstation."
-        }
-    }
-
-	let trmm_site: int = ( input "Enter site number: " )
-
     let trmm_register_key = ( input "Enter TRMM Register Key: " )
 
-    if ($trmm_api_host == "" or $trmm_register_key == "") {
-        print "API Key or Register Key cannot be empty. Exiting."
-        exit 1
+    if ($trmm_register_key | is-empty) {
+        log error "API Key or Register Key cannot be empty. Exiting."
+        return
     }
 
+    $env.TRMM.headers = $env.TRMM.headers | append [ 
+		"Authorization" $"Token ($trmm_register_key)"
+	]
 
-    # let trmm_register_path = '/agents/'
-
-    let headers = [
-        # TODO: Make this dynamic
-        "Content-Type" "application/json"
-        # This does not work when running /runscript/ against the api.
-        # "Content-Type" "application/x-www-form-urlencoded"
-        "X-API-KEY" $trmm_api_key
-        "Authorization" $"Token ($trmm_register_key)"
-    ]
-
-    # let post_url = (
-    #     {
-    #         scheme: https,
-    #         host: $trmm_api_host,
-    #         path: '/api/v3/newagent/'
-    #     } | url join
-    # )
-
-	let api_path = "/api/v3"
-
-	let api_query = "newagent"
-
-    let options = {
-        # https://www.nushell.sh/commands/docs/http_get.html
-        # timeout period in seconds
-        max_time: (5sec | into duration)
-    }
+	const new_agent_path = "/api/v3/newagent/"
 
 	# Generate random agent ID
+	# TODO: Move this into a separate function.
     let agent_id = (
         0..39
         | each {
@@ -455,46 +434,56 @@ export def "trmm-agent register" [ ]: nothing -> nothing {
         # agent_id is a randomly generated 40-character string of upper and lowercase letters.
         # https://github.com/amidaware/rmmagent/blob/develop/agent/utils.go#L134
         "agent_id":        $agent_id,
-        "hostname":        $hostname,
-        "site":            $trmm_site,
+        "hostname":        (sys host | get hostname),
+        "site":            $site_id,
         "monitoring_type": 'server',
         "mesh_node_id":    '',
-        "description":     $description,
+        "description":     '',
+		# Convert from Rust arch to Golang arch
+		# https://github.com/NiceGuyIT/dotfiles/blob/684ecf953c31241cedd903e6054008935d6b7ecd/private_dot_config/nushell/modules/package/mod.nu#L191
         "goarch":          'amd64',
         "plat":            $nu.os-info.name,
     }
 
     #1. Create a TacticalRMM agent with the information created.
     # http get --max-time $options.max_time --headers $headers $url
-    let post_body = ($agent_payload | to json --raw)
-    let post_result = ( $post_body | trmm post $api_path $api_query )
+    let response = (
+		$agent_payload | to json --raw | trmm post $new_agent_path
+	)
 
 
     #2. Take the current configuration in /etc/tacticalrmm
-    let agentpk = ($post_result.body.pk)
-    let token = ($post_result.body.token)
-    let tacticalagent = {
-        "agentid": $agent_id,
-        "agentpk": $agentpk,
-        "apiurl": $trmm_api_host,
-        "baseurl": ( { scheme: https, host: $trmm_api_host } | url join)
-        "cert": "",
-        "meshdir": "",
-        "natsstandardport": "",
-        "proxy": "",
-        "token": $token
-    }
+	log info $response
+	if not ($response.status == 200) {
+		log error $"Something is wrong"
+		return
+	}
+	if not ("pk" in $response.body) or not ("token" in $response.body) {
+		log error $"Body does not have the pk or token"
+		return
+	}
+    let agentpk = ($response.body.pk)
+    let token = ($response.body.token)
 
-    if ( "/etc/tacticalagent" | path exists ) {
-        ^sudo cp "/etc/tacticalagent" "/etc/tacticalagent.bak"
-    }
+	# TODO: Maybe add a timestamp so you don't overwrite other backups?
+	# TODO: Maybe copy the backup based on the apiurl?
+	cp $agent_config_file "/etc/tacticalagent.bak"
 
-    $tacticalagent | to json | ^sudo tee "/etc/tacticalagent" | ignore
+	open $agent_config_file
+	| from json
+	| update agentid $agent_id
+	| update agentpk $agentpk
+	| update apiurl $env.TRMM.url.host
+	| update baseurl ( { scheme: https, host: $env.TRMM.url.host } | url join )
+	| update token $token
+	| collect
+	| to json --raw
+	| save $agent_config_file --force
 
     # 3. restart tacticalrmm
-    ^sudo systemctl restart tacticalagent
+    ^systemctl restart tacticalagent
 
-    return $tacticalagent
+    return (open $agent_config_file | from json)
 }
 
 
