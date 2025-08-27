@@ -415,9 +415,6 @@ export def "trmm-agent register" [
 
 	log info "Registering TacticalRMM agent"
 
-	# Connect to TRMM
-	trmm connect
-
     let trmm_register_key = ( input "Enter TRMM Register Key: " )
 
     if ($trmm_register_key | is-empty) {
