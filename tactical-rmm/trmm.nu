@@ -373,9 +373,9 @@ export def "trmm-agent install" [
 def generate-agent-id []: any -> string {
 	# Generate a random 40-character string of upper and lowercase letters.
 	#(
+	const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
 	let agent_id = ( 0..39
 		| each {
-			let chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
 			# grab a random index for the legnth between 0 and 51
 			let idx = (random int 0..<52)
 			# get the character at the random index
