@@ -467,7 +467,12 @@ export def "trmm-agent register" [
 		return
 	}
 
-	let agent_config_backup = ({stem: $agent_config_file, extension: $env.TRMM.url.host} | path join)
+	let agent_config_backup = (
+		{
+			stem: $agent_config_file,
+			extension: (open $agent_config_file | from json | get apiurl)
+		} | path join
+	)
 	log info $"Backing up agent config to '($agent_config_backup)'"
 	cp $agent_config_file $agent_config_backup
 
