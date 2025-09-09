@@ -386,14 +386,13 @@ def generate-agent-id []: any -> string {
 	return $agent_id
 }
 
-# Registers trmm agent using the TacticalRMM API
+# Registers trmm agent using the TacticalRMM API, updates the config and restarts the service.
 export def "trmm-agent register" [ 
 	--api-domain: string,					# Tactical API URL
 	--client-id: int = 1,					# Client ID for the agent
 	--site-id: int = 1,						# Site ID for the agent
 	--agent-type: string = "server",		# server or workstation
 ]: nothing -> any {
-	# For the moment, this function is linux only
 	use std log
 
 	# Flag variables
@@ -403,39 +402,42 @@ export def "trmm-agent register" [
 	let agent_type = $agent_type
 
 	const agent_config_file = '/etc/tacticalagent'
+	const api_new_agent_path = "/api/v3/newagent/"
+	const trmm_service_name = 'tacticalagent'
+
+	# For the moment, this function is linux only
+	if $nu.os-info.name != 'linux' {
+		log error $"Only Linux is supported at the time. OS: '($nu.os-info.name)'"
+		return
+	}
 
 	if not (is-admin) {
-		log error "This command must be run as an admin user."
-		return
-	}
-	if (not ($agent_config_file | path exists)) {
-		log error $"Tactical Agent configuration not found in ($agent_config_file)"
+		log error $"This command must be run as an admin user. user: '($env.USER)'"
 		return
 	}
 
+	if not ($agent_config_file | path exists) {
+		log error $"Tactical Agent configuration not found in '($agent_config_file)'"
+		return
+	}
+
+	# The install token pulls from the environment first and falls back to user input.
 	log info "Registering TacticalRMM agent"
-
-    let trmm_register_key = ( input "Enter TRMM Register Key: " )
-
-    if ($trmm_register_key | is-empty) {
-        log error "API Key or Register Key cannot be empty. Exiting."
+	let install_token  = ($env.TRMM_INSTALL_TOKEN | default (input "Enter TRMM installation token: "))
+    if ($install_token  | is-empty) {
+        log error "Installation token cannot be empty. Exiting."
         return
     }
 
-    $env.TRMM.headers = $env.TRMM.headers | append [ 
-		"Authorization" $"Token ($trmm_register_key)"
-	]
-
-	const new_agent_path = "/api/v3/newagent/"
-
-	# Generate random agent ID
-    let agent_id = generate-agent-id
-
+	# The install token is the agent installation token used to authenticate with the API.
+    $env.TRMM.headers = ($env.TRMM.headers | append [ 
+		"Authorization" $"Token ($install_token )"
+	])
 
     let agent_payload = {
         # agent_id is a randomly generated 40-character string of upper and lowercase letters.
         # https://github.com/amidaware/rmmagent/blob/develop/agent/utils.go#L134
-        "agent_id":        $agent_id,
+        "agent_id":        (generate-agent-id),
         "hostname":        (sys host | get hostname),
         "site":            $site_id,
         "monitoring_type": 'server',
@@ -447,29 +449,27 @@ export def "trmm-agent register" [
         "plat":            $nu.os-info.name,
     }
 
-    #1. Create a TacticalRMM agent with the information created.
-    # http get --max-time $options.max_time --headers $headers $url
+    # 1. Create a TacticalRMM agent with the information created.
     let response = (
-		$agent_payload | to json --raw | trmm post $new_agent_path
+		$agent_payload | to json --raw | trmm post $api_new_agent_path
 	)
 
-
-    #2. Take the current configuration in /etc/tacticalrmm
+    # 2. Take the current configuration in /etc/tacticalrmm
 	log info $response
 	if not ($response.status == 200) {
-		log error $"Something is wrong"
+		log error $"Could not register the agent in Tactical. response: '($response)'"
 		return
 	}
-	if not ("pk" in $response.body) or not ("token" in $response.body) {
-		log error $"Body does not have the pk or token"
+    let agentpk = $response.body.pk?
+    let token = $response.body.token?
+	if ($agentpk | is-empty) or ($token | is-empty) {
+		log error $"Body does not have the pk or token. body: '($response.body)'"
 		return
 	}
-    let agentpk = ($response.body.pk)
-    let token = ($response.body.token)
 
-	#let timestamp = (date now | format date "%Y%m%d%H%M%S")
-	let backup_name = $"/etc/tacticalagent.($env.TRMM.url.host)"
-	cp $agent_config_file $backup_name
+	let agent_config_backup = ({stem: $agent_config_file, extension: $env.TRMM.url.host} | path join)
+	log info $"Backing up agent config to '($agent_config_backup)'"
+	cp $agent_config_file $agent_config_backup
 
 	open $agent_config_file
 	| from json
@@ -483,7 +483,7 @@ export def "trmm-agent register" [
 	| save $agent_config_file --force
 
     # 3. restart tacticalrmm
-    ^systemctl restart tacticalagent
+    ^systemctl restart $"($trmm_service_name).service"
 
     return (open $agent_config_file | from json)
 }
