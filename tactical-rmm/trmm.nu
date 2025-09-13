@@ -454,7 +454,7 @@ export def "trmm-agent register" [
 	)
 
     # 2. Take the current configuration in /etc/tacticalrmm
-	log info $response
+	log info $"($response)"
 	if not ($response.status == 200) {
 		log error $"Could not register the agent in Tactical. response: '($response)'"
 		return
