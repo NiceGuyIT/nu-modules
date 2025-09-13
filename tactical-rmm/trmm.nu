@@ -423,15 +423,14 @@ export def "trmm-agent register" [
 
 	# The install token pulls from the environment first and falls back to user input.
 	log info "Registering TacticalRMM agent"
-	let install_token  = ($env.TRMM_INSTALL_TOKEN | default (input "Enter TRMM installation token: "))
-    if ($install_token  | is-empty) {
+	if not ('TRMM_INSTALL_TOKEN' in $env) or ($env.TRMM_INSTALL_TOKEN | is-empty) {
         log error "Installation token cannot be empty. Exiting."
         return
-    }
+	}
 
 	# The install token is the agent installation token used to authenticate with the API.
     $env.TRMM.headers = ($env.TRMM.headers | append [ 
-		"Authorization" $"Token ($install_token )"
+		"Authorization" $"Token ($env.TRMM_INSTALL_TOKEN )"
 	])
 
     let agent_payload = {
