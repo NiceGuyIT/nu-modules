@@ -433,10 +433,11 @@ export def "trmm-agent register" [
 		"Authorization" $"Token ($env.TRMM_INSTALL_TOKEN )"
 	])
 
+	# agent_id is a randomly generated 40-character string of upper and lowercase letters.
+	# https://github.com/amidaware/rmmagent/blob/develop/agent/utils.go#L134
+	let agent_id = (generate-agent-id)
     let agent_payload = {
-        # agent_id is a randomly generated 40-character string of upper and lowercase letters.
-        # https://github.com/amidaware/rmmagent/blob/develop/agent/utils.go#L134
-        "agent_id":        (generate-agent-id),
+        "agent_id":        $agent_id,
         "hostname":        (sys host | get hostname),
         "site":            $site_id,
         "monitoring_type": 'server',
