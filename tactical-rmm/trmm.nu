@@ -440,7 +440,7 @@ export def "trmm-agent register" [
         "agent_id":        $agent_id,
         "hostname":        (sys host | get hostname),
         "site":            $site_id,
-        "monitoring_type": 'server',
+        "monitoring_type": $agent_type,
         "mesh_node_id":    '',
         "description":     '',
 		# Convert from Rust arch to Golang arch
