@@ -1,5 +1,3 @@
-#!/usr/bin/env nu
-
 # Use this shebang to check the script for errors.
 # #!/usr/bin/env -S nu --ide-check 1
 
