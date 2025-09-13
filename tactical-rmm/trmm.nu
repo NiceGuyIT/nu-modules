@@ -455,14 +455,8 @@ export def "trmm-agent register" [
 
     # 2. Take the current configuration in /etc/tacticalrmm
 	log info $"($response)"
-	if not ($response.status == 200) {
-		log error $"Could not register the agent in Tactical. response: '($response)'"
-		return
-	}
-    let agentpk = $response.body.pk?
-    let token = $response.body.token?
-	if ($agentpk | is-empty) or ($token | is-empty) {
-		log error $"Body does not have the pk or token. body: '($response.body)'"
+	if ($response.pk? | is-empty) or ($response.token? | is-empty) {
+		log error $"Body does not have the pk or token. response: '($response)'"
 		return
 	}
 
@@ -478,10 +472,10 @@ export def "trmm-agent register" [
 	open $agent_config_file
 	| from json
 	| update agentid $agent_id
-	| update agentpk $agentpk
+	| update agentpk $response.pk
 	| update apiurl $env.TRMM.url.host
 	| update baseurl ( { scheme: https, host: $env.TRMM.url.host } | url join )
-	| update token $token
+	| update token $response.token
 	| collect
 	| to json --raw
 	| save $agent_config_file --force
